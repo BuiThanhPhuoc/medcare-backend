@@ -30,6 +30,9 @@ app.get('/', (req, res) => {
     res.json({ message: "Chào mừng đến với API phòng khám MedCare!" });
 });
 
+app.use('/api/auth', require('./routes/authRoutes'));
+
 app.listen(PORT, () => {
     console.log(`🚀 Server đang chạy tại: http://localhost:${PORT}`);
 });
+
