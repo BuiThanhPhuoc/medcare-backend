@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const authRoutes = require('./src/routes/authRoutes');
 const appointmentRoutes = require('./src/routes/appointmentRoutes');
+require('./src/services/cronService');
 
 const app = express();
 
