@@ -1,1 +1,0 @@
-# MedCare Backend Project 
