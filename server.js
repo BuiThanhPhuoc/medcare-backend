@@ -8,6 +8,7 @@ require('./src/services/cronService');
 const medicalRecordRoutes = require('./src/routes/medicalRecordRoutes');
 const paymentRoutes = require('./src/routes/paymentRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
+const medicineRoutes = require('./src/routes/medicineRoutes');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/medical-records', medicalRecordRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/medicines', medicineRoutes);
 
 const PORT = process.env.PORT || 5000;
 
