@@ -1,9 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { getRevenueStatistics } = require('../controllers/adminController');
+
+// Đã thêm getAllUsers và toggleLockUser vào đây
+const { getRevenueStatistics, getAllUsers, toggleLockUser } = require('../controllers/adminController');
 const { verifyToken, verifyRole } = require('../middlewares/authMiddleware');
 
-// Chỉ có Role 'admin' mới được xem doanh thu
 router.get('/revenue', verifyToken, verifyRole(['admin']), getRevenueStatistics);
+router.get('/users', verifyToken, verifyRole(['admin']), getAllUsers);
+router.put('/users/:id/lock', verifyToken, verifyRole(['admin']), toggleLockUser);
 
 module.exports = router;

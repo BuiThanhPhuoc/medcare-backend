@@ -1,16 +1,10 @@
 const db = require('../config/db');
 
+// 1. Hàm thống kê doanh thu
 const getRevenueStatistics = async (req, res) => {
     try {
-        // 1. Tổng doanh thu toàn hệ thống
-        const [totalResult] = await db.execute(
-            'SELECT SUM(total_amount) AS total_revenue FROM payments'
-        );
-
-        // 2. Thống kê theo phương thức thanh toán
-        const [methodResult] = await db.execute(
-            'SELECT payment_method, SUM(total_amount) AS total, COUNT(id) AS total_transactions FROM payments GROUP BY payment_method'
-        );
+        const [totalResult] = await db.execute('SELECT SUM(total_amount) AS total_revenue FROM payments');
+        const [methodResult] = await db.execute('SELECT payment_method, SUM(total_amount) AS total, COUNT(id) AS total_transactions FROM payments GROUP BY payment_method');
 
         res.status(200).json({
             message: "Thống kê doanh thu thành công!",
@@ -19,11 +13,56 @@ const getRevenueStatistics = async (req, res) => {
                 revenue_by_method: methodResult
             }
         });
-
     } catch (error) {
         console.error("Lỗi thống kê:", error);
         res.status(500).json({ message: "Lỗi server!" });
     }
 };
 
-module.exports = { getRevenueStatistics };
+// 2. Hàm lấy danh sách user
+const getAllUsers = async (req, res) => {
+    try {
+        const [users] = await db.execute(
+            'SELECT id, username, email, phone, role, is_locked, created_at FROM users WHERE id != ?',
+            [req.user.id] 
+        );
+        res.status(200).json({ users });
+    } catch (error) {
+        console.error("Lỗi lấy danh sách user:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+// 3. Hàm khóa/mở khóa tài khoản
+const toggleLockUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (id == req.user.id) {
+            return res.status(400).json({ message: "Không thể tự khóa tài khoản của chính mình!" });
+        }
+
+        const [users] = await db.execute('SELECT is_locked, role FROM users WHERE id = ?', [id]);
+        
+        if (users.length === 0) {
+            return res.status(404).json({ message: "Không tìm thấy người dùng này!" });
+        }
+
+        if (users[0].role === 'admin') {
+            return res.status(403).json({ message: "Không thể khóa tài khoản của Admin khác!" });
+        }
+
+        const newStatus = users[0].is_locked ? 0 : 1; 
+        
+        await db.execute('UPDATE users SET is_locked = ? WHERE id = ?', [newStatus, id]);
+
+        const message = newStatus ? "Đã khóa tài khoản thành công!" : "Đã mở khóa tài khoản thành công!";
+        res.status(200).json({ message });
+
+    } catch (error) {
+        console.error("Lỗi khóa tài khoản:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+module.exports = { getRevenueStatistics, getAllUsers, toggleLockUser };
