@@ -46,4 +46,39 @@ const examinePatient = async (req, res) => {
     }
 };
 
-module.exports = { examinePatient };
+
+const getPatientHistory = async (req, res) => {
+    try {
+        const patientId = req.user.id; // Lấy ID bệnh nhân từ token
+
+        // Query kết hợp 3 bảng: appointments, medical_records và users (để lấy tên bác sĩ)
+        const [history] = await db.execute(`
+            SELECT 
+                a.id AS appointment_id,
+                a.appointment_date,
+                a.appointment_time,
+                d.username AS doctor_name,
+                mr.diagnosis,
+                mr.prescription,
+                mr.note,
+                a.payment_status
+            FROM appointments a
+            JOIN users d ON a.doctor_id = d.id
+            LEFT JOIN medical_records mr ON a.id = mr.appointment_id
+            WHERE a.patient_id = ? AND a.status = 'completed'
+            ORDER BY a.appointment_date DESC, a.appointment_time DESC
+        `, [patientId]);
+
+        if (history.length === 0) {
+            return res.status(200).json({ message: "Bạn chưa có lịch sử khám bệnh nào.", history: [] });
+        }
+
+        res.status(200).json({ history });
+
+    } catch (error) {
+        console.error("Lỗi lấy lịch sử khám:", error);
+        res.status(500).json({ message: "Lỗi server khi lấy hồ sơ bệnh án!" });
+    }
+};
+
+module.exports = { examinePatient, getPatientHistory };
