@@ -29,7 +29,7 @@ const bookAppointment = async (req, res) => {
         const [patients] = await db.execute('SELECT email FROM users WHERE id = ?', [patientId]);
         const patientEmail = patients[0].email;
 
-        // 3. Chạy hàm gửi mail (không cần await để user không phải đợi mail gửi xong mới nhận được response)
+        // 3. Chạy hàm gửi mail 
         sendConfirmationEmail(patientEmail, appointment_date, appointment_time);
 
         res.status(201).json({ 
@@ -46,7 +46,7 @@ const bookAppointment = async (req, res) => {
 // API: Lễ tân tìm lịch khám trong ngày theo số điện thoại
 const searchByPhone = async (req, res) => {
     try {
-        const { phone } = req.query; // Lấy từ query string: ?phone=09...
+        const { phone } = req.query; 
         if (!phone) return res.status(400).json({ message: "Vui lòng nhập số điện thoại!" });
 
         const [appointments] = await db.execute(`
@@ -66,9 +66,8 @@ const searchByPhone = async (req, res) => {
 // API: Lễ tân bấm nút Check-in
 const checkInAppointment = async (req, res) => {
     try {
-        const { id } = req.params; // Lấy ID của lịch khám trên URL
+        const { id } = req.params; 
         
-        // Cập nhật trạng thái
         const [result] = await db.execute(
             'UPDATE appointments SET status = "checked-in" WHERE id = ?',
             [id]
@@ -85,4 +84,73 @@ const checkInAppointment = async (req, res) => {
     }
 };
 
-module.exports = { bookAppointment, searchByPhone, checkInAppointment };
+// API: Lấy danh sách bác sĩ cho Frontend
+const getDoctors = async (req, res) => {
+    try {
+        const [doctors] = await db.execute('SELECT id, username FROM users WHERE role = "doctor"');
+        res.status(200).json({ doctors });
+    } catch (error) {
+        console.error("Lỗi lấy danh sách bác sĩ:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+// API: Bác sĩ xem danh sách bệnh nhân CỦA MÌNH trong hôm nay
+const getDoctorAppointments = async (req, res) => {
+    try {
+        const doctorId = req.user.id; 
+        
+        // Đã xóa a.reason khỏi câu lệnh SELECT
+        const [appointments] = await db.execute(`
+            SELECT a.id, a.appointment_time, a.status, u.username AS patient_name, u.phone
+            FROM appointments a
+            JOIN users u ON a.patient_id = u.id
+            WHERE a.doctor_id = ? AND a.appointment_date = CURDATE()
+            ORDER BY a.appointment_time ASC
+        `, [doctorId]);
+
+        res.status(200).json({ appointments });
+    } catch (error) {
+        console.error("Lỗi lấy lịch khám cho bác sĩ:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+// API 1: Lễ tân lấy danh sách bệnh nhân đã khám xong (completed) nhưng chưa đóng tiền (unpaid)
+const getUnpaidAppointments = async (req, res) => {
+    try {
+        const [appointments] = await db.execute(`
+            SELECT a.id, a.appointment_date, a.appointment_time, u.username AS patient_name, u.phone, m.diagnosis
+            FROM appointments a
+            JOIN users u ON a.patient_id = u.id
+            LEFT JOIN medical_records m ON a.id = m.appointment_id
+            WHERE a.status = 'completed' AND a.payment_status = 'unpaid'
+            ORDER BY a.appointment_date ASC, a.appointment_time ASC
+        `);
+        res.status(200).json({ appointments });
+    } catch (error) {
+        console.error("Lỗi lấy danh sách thu tiền:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+// API 2: Lễ tân bấm nút Xác nhận thu tiền
+const processPayment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [result] = await db.execute(
+            'UPDATE appointments SET payment_status = "paid" WHERE id = ?',
+            [id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "Không tìm thấy lịch khám!" });
+        }
+        res.status(200).json({ message: "💰 Thu tiền thành công!" });
+    } catch (error) {
+        console.error("Lỗi thanh toán:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+module.exports = { bookAppointment, searchByPhone, checkInAppointment, getDoctors, getDoctorAppointments, getUnpaidAppointments, processPayment };

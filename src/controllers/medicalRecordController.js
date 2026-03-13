@@ -81,4 +81,26 @@ const getPatientHistory = async (req, res) => {
     }
 };
 
-module.exports = { examinePatient, getPatientHistory };
+// API: Bệnh nhân xem lịch sử khám và toa thuốc của chính mình
+const getMyMedicalRecords = async (req, res) => {
+    try {
+        const patientId = req.user.id; 
+        
+        // Nối 3 bảng: Bệnh án + Lịch khám + User(Bác sĩ) để lấy đủ thông tin
+        const [records] = await db.execute(`
+            SELECT m.id, m.diagnosis, m.prescription, m.note, a.appointment_date, u.username AS doctor_name
+            FROM medical_records m
+            JOIN appointments a ON m.appointment_id = a.id
+            JOIN users u ON a.doctor_id = u.id
+            WHERE a.patient_id = ?
+            ORDER BY a.appointment_date DESC
+        `, [patientId]);
+
+        res.status(200).json({ records });
+    } catch (error) {
+        console.error("Lỗi lấy bệnh án:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+module.exports = { examinePatient, getPatientHistory, getMyMedicalRecords };
