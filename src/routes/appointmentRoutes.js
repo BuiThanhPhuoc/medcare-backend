@@ -9,7 +9,8 @@ const {
     getDoctors,
     getDoctorAppointments,
     getUnpaidAppointments, 
-    processPayment 
+    processPayment,
+    getBookedSlots
 } = require('../controllers/appointmentController');
 
 const { verifyToken, verifyRole } = require('../middlewares/authMiddleware');
@@ -19,6 +20,9 @@ router.get('/doctors', verifyToken, getDoctors);
 
 // 2. Bác sĩ xem lịch khám của mình
 router.get('/doctor-schedule', verifyToken, verifyRole(['doctor']), getDoctorAppointments);
+
+// 2.5. Lấy danh sách slots đã đặt (để disable trên Frontend)
+router.get('/booked-slots', verifyToken, verifyRole(['patient']), getBookedSlots);
 
 // 3. Patient đặt lịch khám
 router.post('/', verifyToken, verifyRole(['patient']), bookAppointment);

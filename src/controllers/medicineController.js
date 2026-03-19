@@ -50,4 +50,18 @@ const updateMedicine = async (req, res) => {
     }
 };
 
-module.exports = { getAllMedicines, addMedicine, updateMedicine };
+// 4. Xóa thuốc
+const deleteMedicine = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        await db.execute('DELETE FROM medicines WHERE id = ?', [id]);
+
+        res.status(200).json({ message: "Xóa thuốc thành công!" });
+    } catch (error) {
+        console.error("Lỗi xóa thuốc:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+module.exports = { getAllMedicines, addMedicine, updateMedicine, deleteMedicine };

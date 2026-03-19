@@ -87,7 +87,10 @@ const checkInAppointment = async (req, res) => {
 // API: Lấy danh sách bác sĩ cho Frontend
 const getDoctors = async (req, res) => {
     try {
-        const [doctors] = await db.execute('SELECT id, username FROM users WHERE role = "doctor"');
+        // *** CHỈ LẤY DOCTORS ĐANG HOẠT ĐỘNG ***
+        const [doctors] = await db.execute(
+            'SELECT id, username, status FROM users WHERE role = "doctor" AND status = "active"'
+        );
         res.status(200).json({ doctors });
     } catch (error) {
         console.error("Lỗi lấy danh sách bác sĩ:", error);
@@ -153,4 +156,28 @@ const processPayment = async (req, res) => {
     }
 };
 
-module.exports = { bookAppointment, searchByPhone, checkInAppointment, getDoctors, getDoctorAppointments, getUnpaidAppointments, processPayment };
+// API: Lấy danh sách appointments đã đặt theo doctor_id và date
+const getBookedSlots = async (req, res) => {
+    try {
+        const { doctor_id, appointment_date } = req.query;
+
+        if (!doctor_id || !appointment_date) {
+            return res.status(400).json({ message: "Vui lòng cung cấp doctor_id và appointment_date!" });
+        }
+
+        const [appointments] = await db.execute(
+            `SELECT appointment_time FROM appointments 
+             WHERE doctor_id = ? AND appointment_date = ? AND status != "cancelled"`,
+            [doctor_id, appointment_date]
+        );
+
+        // Trả về danh sách TIME đã được đặt
+        const bookedTimes = appointments.map(apt => apt.appointment_time);
+        res.status(200).json({ bookedTimes });
+    } catch (error) {
+        console.error("Lỗi lấy danh sách slots:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
+module.exports = { bookAppointment, searchByPhone, checkInAppointment, getDoctors, getDoctorAppointments, getUnpaidAppointments, processPayment, getBookedSlots };
