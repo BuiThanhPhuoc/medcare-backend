@@ -149,6 +149,7 @@ const deleteMedicine = async (req, res) => {
     }
 };
 
+<<<<<<< HEAD
 // 5) Import thuốc từ file Excel
 // Expected columns (header): name, quantity, import_price, price, expiry_date
 // mode: merge (default), replace, skip
@@ -373,3 +374,6 @@ module.exports = {
     importMedicinesFromExcel,
     downloadMedicineTemplate
 };
+=======
+module.exports = { getAllMedicines, addMedicine, updateMedicine, deleteMedicine };
+>>>>>>> 6c7f697c9d77efeae9874b188addb03cfb6d5a99

@@ -8,6 +8,10 @@ const {
     getDoctors,
     getDoctorAppointments,
     getUnpaidAppointments, 
+<<<<<<< HEAD
+=======
+    processPayment,
+>>>>>>> 6c7f697c9d77efeae9874b188addb03cfb6d5a99
     getBookedSlots
 } = require('../controllers/appointmentController');
 
