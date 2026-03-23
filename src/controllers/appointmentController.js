@@ -10,19 +10,38 @@ const bookAppointment = async (req, res) => {
             return res.status(400).json({ message: "Vui lòng chọn bác sĩ, ngày và giờ khám!" });
         }
 
-        const [doctors] = await db.execute('SELECT * FROM users WHERE id = ? AND role = "doctor"', [doctor_id]);
-        if (doctors.length === 0) return res.status(404).json({ message: "Không tìm thấy bác sĩ này!" });
+        // Kiểm tra doctor tồn tại, có hồ sơ đầy đủ và đang hoạt động
+        // doctor_id ở đây là d.id từ doctors table
+        const [doctors] = await db.execute(`
+            SELECT d.id as doctor_id, u.id as user_id, d.status, d.full_name
+            FROM doctors d
+            JOIN users u ON d.user_id = u.id
+            WHERE d.id = ? AND u.role = 'doctor' AND u.status = 'active' AND d.status IN ('Active', 'Đang hoạt động')
+        `, [doctor_id]);
+        if (doctors.length === 0) return res.status(404).json({ message: "Bác sĩ này không khả dụng hoặc đang ngừng hoạt động!" });
+        
+        const doctorUserId = doctors[0].user_id;
 
+        // Kiểm tra doctor có lịch làm việc được duyệt vào ngày này không
+        const [schedules] = await db.execute(`
+            SELECT id FROM doctor_schedules 
+            WHERE doctor_id = ? AND work_date = ? AND status = 'approved'
+        `, [doctor_id, appointment_date]);
+        if (schedules.length === 0) {
+            return res.status(400).json({ message: "Bác sĩ không có lịch làm việc được duyệt vào ngày này!" });
+        }
+
+        // Check existing appointments (appointments.doctor_id stores user_id)
         const [existingAppointments] = await db.execute(
             'SELECT * FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ? AND status != "cancelled"',
-            [doctor_id, appointment_date, appointment_time]
+            [doctorUserId, appointment_date, appointment_time]
         );
-        if (existingAppointments.length > 0) return res.status(409).json({ message: "Bác sĩ đã có lịch hẹn giờ này!" });
+        if (existingAppointments.length > 0) return res.status(409).json({ message: "Giờ khám này đã được đặt rồi!" });
 
-        // 1. Lưu vào DB
+        // 1. Lưu vào DB (lưu user_id của doctor, appointments.doctor_id lưu user_id)
         const [result] = await db.execute(
             'INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time) VALUES (?, ?, ?, ?)',
-            [patientId, doctor_id, appointment_date, appointment_time]
+            [patientId, doctorUserId, appointment_date, appointment_time]
         );
 
         // 2. Lấy email của patient để gửi thông báo
@@ -87,7 +106,14 @@ const checkInAppointment = async (req, res) => {
 // API: Lấy danh sách bác sĩ cho Frontend
 const getDoctors = async (req, res) => {
     try {
-        const [doctors] = await db.execute('SELECT id, username FROM users WHERE role = "doctor"');
+        // Lấy doctors: CHỈ có hồ sơ, đang hoạt động, và user active
+        const [doctors] = await db.execute(`
+            SELECT d.id, u.id as user_id, u.username, d.full_name, d.specialty, d.status
+            FROM doctors d
+            JOIN users u ON d.user_id = u.id
+            WHERE u.role = 'doctor' AND u.status = 'active' AND d.status IN ('Active', 'Đang hoạt động')
+            ORDER BY d.full_name ASC
+        `);
         res.status(200).json({ doctors });
     } catch (error) {
         console.error("Lỗi lấy danh sách bác sĩ:", error);
@@ -98,16 +124,19 @@ const getDoctors = async (req, res) => {
 // API: Bác sĩ xem danh sách bệnh nhân CỦA MÌNH trong hôm nay
 const getDoctorAppointments = async (req, res) => {
     try {
-        const doctorId = req.user.id; 
+        const userId = req.user.id; 
+        const [doctorRows] = await db.execute('SELECT id FROM doctors WHERE user_id = ?', [userId]);
+        if (doctorRows.length === 0) {
+            return res.status(404).json({ message: "Bác sĩ chưa có hồ sơ thông tin!" });
+        }
         
-        // Đã xóa a.reason khỏi câu lệnh SELECT
         const [appointments] = await db.execute(`
             SELECT a.id, a.appointment_time, a.status, u.username AS patient_name, u.phone
             FROM appointments a
             JOIN users u ON a.patient_id = u.id
             WHERE a.doctor_id = ? AND a.appointment_date = CURDATE()
             ORDER BY a.appointment_time ASC
-        `, [doctorId]);
+        `, [userId]);
 
         res.status(200).json({ appointments });
     } catch (error) {
@@ -120,9 +149,12 @@ const getDoctorAppointments = async (req, res) => {
 const getUnpaidAppointments = async (req, res) => {
     try {
         const [appointments] = await db.execute(`
-            SELECT a.id, a.appointment_date, a.appointment_time, u.username AS patient_name, u.phone, m.diagnosis
+            SELECT a.id, a.appointment_date, a.appointment_time, u.username AS patient_name, u.phone, m.diagnosis,
+                   d.full_name AS doctor_name
             FROM appointments a
             JOIN users u ON a.patient_id = u.id
+            JOIN users doctor_user ON a.doctor_id = doctor_user.id
+            LEFT JOIN doctors d ON doctor_user.id = d.user_id
             LEFT JOIN medical_records m ON a.id = m.appointment_id
             WHERE a.status = 'completed' AND a.payment_status = 'unpaid'
             ORDER BY a.appointment_date ASC, a.appointment_time ASC
@@ -134,23 +166,35 @@ const getUnpaidAppointments = async (req, res) => {
     }
 };
 
-// API 2: Lễ tân bấm nút Xác nhận thu tiền
-const processPayment = async (req, res) => {
+// API: Lấy danh sách appointments đã đặt theo doctor_id và date
+const getBookedSlots = async (req, res) => {
     try {
-        const { id } = req.params;
-        const [result] = await db.execute(
-            'UPDATE appointments SET payment_status = "paid" WHERE id = ?',
-            [id]
+        const { doctor_id, appointment_date } = req.query;
+
+        if (!doctor_id || !appointment_date) {
+            return res.status(400).json({ message: "Vui lòng cung cấp doctor_id và appointment_date!" });
+        }
+
+        // doctor_id từ query là doctors.id, cần lấy user_id của doctor
+        const [doctorInfo] = await db.execute('SELECT user_id FROM doctors WHERE id = ?', [doctor_id]);
+        if (doctorInfo.length === 0) {
+            return res.status(404).json({ message: "Bác sĩ không tồn tại!" });
+        }
+        const doctorUserId = doctorInfo[0].user_id;
+
+        const [appointments] = await db.execute(
+            `SELECT appointment_time FROM appointments 
+             WHERE doctor_id = ? AND appointment_date = ? AND status != "cancelled"`,
+            [doctorUserId, appointment_date]
         );
 
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: "Không tìm thấy lịch khám!" });
-        }
-        res.status(200).json({ message: "💰 Thu tiền thành công!" });
+        // Trả về danh sách TIME đã được đặt
+        const bookedTimes = appointments.map(apt => apt.appointment_time);
+        res.status(200).json({ bookedTimes });
     } catch (error) {
-        console.error("Lỗi thanh toán:", error);
+        console.error("Lỗi lấy danh sách slots:", error);
         res.status(500).json({ message: "Lỗi server!" });
     }
 };
 
-module.exports = { bookAppointment, searchByPhone, checkInAppointment, getDoctors, getDoctorAppointments, getUnpaidAppointments, processPayment };
+module.exports = { bookAppointment, searchByPhone, checkInAppointment, getDoctors, getDoctorAppointments, getUnpaidAppointments, getBookedSlots };
