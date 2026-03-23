@@ -2,17 +2,23 @@ const db = require('../config/db');
 
 const examinePatient = async (req, res) => {
     try {
-        const doctorId = req.user.id; // Lấy ID của bác sĩ từ token
+        const userId = req.user.id; 
         const { appointment_id, diagnosis, prescription, note } = req.body;
 
         if (!appointment_id || !diagnosis) {
             return res.status(400).json({ message: "Vui lòng nhập mã lịch khám và chẩn đoán bệnh!" });
         }
 
+        // 0. Lấy doctor_id từ user_id (vì appointments.doctor_id là user_id)
+        const [doctorRows] = await db.execute('SELECT id FROM doctors WHERE user_id = ?', [userId]);
+        if (doctorRows.length === 0) {
+            return res.status(404).json({ message: "Bác sĩ chưa có hồ sơ thông tin!" });
+        }
+
         // 1. Kiểm tra lịch khám có tồn tại, có đúng của bác sĩ này và đang ở trạng thái "checked-in" không?
         const [appointments] = await db.execute(
             'SELECT * FROM appointments WHERE id = ? AND doctor_id = ?',
-            [appointment_id, doctorId]
+            [appointment_id, userId]
         );
 
         if (appointments.length === 0) {

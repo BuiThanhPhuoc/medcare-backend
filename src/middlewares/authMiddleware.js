@@ -24,7 +24,8 @@ const verifyToken = (req, res, next) => {
     } catch (error) {
         // In lỗi chi tiết ra Terminal và trả về cho Postman/Thunder Client
         console.log("Lỗi JWT cụ thể:", error.message);
-        return res.status(403).json({ 
+        // Token không hợp lệ/expired => coi như chưa xác thực
+        return res.status(401).json({ 
             message: "Token không hợp lệ hoặc đã hết hạn!", 
             chi_tiet_loi: error.message 
         });

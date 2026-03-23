@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 
-// Đã bổ sung 2 hàm thu tiền (getUnpaidAppointments, processPayment) vào danh sách import
 const { 
     bookAppointment, 
     searchByPhone, 
@@ -9,7 +8,7 @@ const {
     getDoctors,
     getDoctorAppointments,
     getUnpaidAppointments, 
-    processPayment 
+    getBookedSlots
 } = require('../controllers/appointmentController');
 
 const { verifyToken, verifyRole } = require('../middlewares/authMiddleware');
@@ -19,6 +18,9 @@ router.get('/doctors', verifyToken, getDoctors);
 
 // 2. Bác sĩ xem lịch khám của mình
 router.get('/doctor-schedule', verifyToken, verifyRole(['doctor']), getDoctorAppointments);
+
+// 2.5. Lấy danh sách slots đã đặt (để disable trên Frontend)
+router.get('/booked-slots', verifyToken, verifyRole(['patient']), getBookedSlots);
 
 // 3. Patient đặt lịch khám
 router.post('/', verifyToken, verifyRole(['patient']), bookAppointment);
@@ -31,8 +33,5 @@ router.put('/:id/checkin', verifyToken, verifyRole(['receptionist', 'admin']), c
 
 // 6. Route lấy danh sách chờ thu tiền
 router.get('/unpaid', verifyToken, verifyRole(['receptionist', 'admin']), getUnpaidAppointments);
-
-// 7. Route xử lý thanh toán
-router.put('/:id/pay', verifyToken, verifyRole(['receptionist', 'admin']), processPayment);
 
 module.exports = router;

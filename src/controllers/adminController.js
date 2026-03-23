@@ -19,6 +19,47 @@ const getRevenueStatistics = async (req, res) => {
     }
 };
 
+// 1.1 Hàm thống kê doanh thu theo ngày (timeline)
+// Dùng created_at trong bảng payments để dựng biểu đồ doanh thu theo thời gian.
+const getRevenueTimeline = async (req, res) => {
+    try {
+        const daysParam = parseInt(req.query.days ?? '7', 10);
+        const days = Number.isFinite(daysParam) ? daysParam : 7;
+        const safeDays = Math.min(Math.max(days, 1), 30); // giới hạn 1..30 ngày
+
+        // safeDays=7 -> lấy từ CURDATE() - 6 ngày đến hôm nay (tính cả hôm nay)
+        const offsetDays = safeDays - 1;
+
+        const [rows] = await db.execute(
+            `
+            SELECT
+                DATE(created_at) AS day,
+                SUM(total_amount) AS total_revenue,
+                COUNT(id) AS total_transactions
+            FROM payments
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY day ASC
+            `,
+            [offsetDays]
+        );
+
+        res.status(200).json({
+            message: "Thống kê doanh thu theo ngày thành công!",
+            data: {
+                timeline: rows.map((r) => ({
+                    day: r.day,
+                    total_revenue: r.total_revenue || 0,
+                    total_transactions: r.total_transactions || 0
+                }))
+            }
+        });
+    } catch (error) {
+        console.error("Lỗi thống kê timeline:", error);
+        res.status(500).json({ message: "Lỗi server!" });
+    }
+};
+
 // 2. Hàm lấy danh sách user
 const getAllUsers = async (req, res) => {
     try {
@@ -65,4 +106,4 @@ const toggleLockUser = async (req, res) => {
     }
 };
 
-module.exports = { getRevenueStatistics, getAllUsers, toggleLockUser };
+module.exports = { getRevenueStatistics, getRevenueTimeline, getAllUsers, toggleLockUser };
