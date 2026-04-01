@@ -56,44 +56,71 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
     try {
-        // Cho phép đăng nhập bằng username, email hoặc số điện thoại
         const { identifier, password } = req.body;
 
         if (!identifier || !password) {
             return res.status(400).json({ message: "Vui lòng nhập tài khoản và mật khẩu!" });
         }
 
-        // 1. Tìm user trong DB
         const [users] = await db.execute(
             'SELECT * FROM users WHERE username = ? OR email = ? OR phone = ?',
             [identifier, identifier, identifier]
         );
 
-        if (users.length === 0) {
-            return res.status(401).json({ message: "Sai tài khoản hoặc mật khẩu!" });
-        }
+        if (users.length === 0) return res.status(401).json({ message: "Sai tài khoản hoặc mật khẩu!" });
 
         const user = users[0];
 
-        // Kiểm tra xem tài khoản có bị admin khóa không (theo luồng yêu cầu của bạn)
-        if (user.is_locked) {
-            return res.status(403).json({ message: "Tài khoản của bạn đã bị khóa!" });
-        }
+        if (user.is_locked) return res.status(403).json({ message: "Tài khoản của bạn đã bị khóa!" });
 
-        // 2. So sánh mật khẩu người dùng nhập với mật khẩu đã băm trong DB
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ message: "Sai tài khoản hoặc mật khẩu!" });
+        if (!isMatch) return res.status(401).json({ message: "Sai tài khoản hoặc mật khẩu!" });
+
+        const inactiveUserStatuses = ['inactive', 'Ngừng hoạt động', '0'];
+        const inactiveDoctorFromProfile = ['inactive', 'Inactive', 'Ngừng hoạt động'];
+
+        if (user.role === 'doctor') {
+            if (inactiveUserStatuses.includes(user.status)) {
+                return res.status(403).json({
+                    message: "Bác sĩ đã ngừng hoạt động. Vui lòng liên hệ quản trị viên!"
+                });
+            }
+            const [docRows] = await db.execute(
+                'SELECT status FROM doctors WHERE user_id = ? LIMIT 1',
+                [user.id]
+            );
+            if (docRows.length > 0 && inactiveDoctorFromProfile.includes(String(docRows[0].status))) {
+                return res.status(403).json({
+                    message: "Bác sĩ đã ngừng hoạt động. Vui lòng liên hệ quản trị viên!"
+                });
+            }
         }
 
-        // 3. Tạo JWT Token
+        if (user.role === 'lab_technician') {
+            try {
+                const [ltRows] = await db.execute(
+                    'SELECT status FROM lab_technicians WHERE user_id = ? LIMIT 1',
+                    [user.id]
+                );
+                if (ltRows.length > 0 && String(ltRows[0].status) === 'Inactive') {
+                    return res.status(403).json({
+                        message: "Tài khoản kỹ thuật viên đã ngừng hoạt động. Liên hệ quản trị viên."
+                    });
+                }
+            } catch (e) {
+                if (e.code !== 'ER_NO_SUCH_TABLE') {
+                    console.error('login lab_technicians check:', e.message);
+                }
+            }
+        }
+
         const token = jwt.sign(
-            { id: user.id, role: user.role }, // Payload chứa thông tin cần thiết
-            process.env.JWT_SECRET,           // Lấy mã bí mật từ file .env
-            { expiresIn: '1d' }               // Token có hạn 1 ngày
+            { id: user.id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '1d' }
         );
 
-        // 4. Trả về kết quả
+        // TRẢ VỀ THÊM CỜ is_first_login CHO FRONTEND BIẾT
         res.status(200).json({
             message: "Đăng nhập thành công!",
             token: token,
@@ -101,15 +128,102 @@ const login = async (req, res) => {
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                is_first_login: user.is_first_login // <--- QUAN TRỌNG
             }
         });
 
     } catch (error) {
-        console.error("Lỗi đăng nhập:", error);
         res.status(500).json({ message: "Lỗi server!" });
     }
 };
 
+// HÀM: Ép đổi mật khẩu lần đầu
+const forceChangePassword = async (req, res) => {
+    try {
+        // Lấy ID từ token (middleware verifyToken sẽ cung cấp req.user)
+        const userId = req.user.id;
+        const { newPassword, confirmPassword } = req.body;
 
-module.exports = { register, login };
+        if (!newPassword || !confirmPassword) {
+            return res.status(400).json({ message: "Vui lòng nhập đầy đủ thông tin!" });
+        }
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ message: "Mật khẩu không khớp!" });
+        }
+
+        // ÉP REGEX BẢO MẬT
+        if (!/^(?=.*[A-Z])(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/.test(newPassword)) {
+            return res.status(400).json({ message: "Mật khẩu ít nhất 8 ký tự, có 1 chữ hoa và 1 ký tự đặc biệt!" });
+        }
+
+        // Băm mật khẩu mới
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Cập nhật DB: Đổi pass và tắt cờ is_first_login
+        await db.execute(
+            'UPDATE users SET password = ?, is_first_login = FALSE WHERE id = ?',
+            [hashedPassword, userId]
+        );
+
+        res.status(200).json({ message: "Đổi mật khẩu thành công! Bạn có thể sử dụng hệ thống." });
+
+    } catch (error) {
+        res.status(500).json({ message: "Lỗi server khi đổi mật khẩu!" });
+    }
+};
+
+// HÀM: Đổi mật khẩu
+const changePassword = async (req, res) => {
+    try {
+        // Lấy ID từ token (middleware verifyToken)
+        const userId = req.user.id;
+        const { currentPassword, newPassword, confirmPassword } = req.body;
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return res.status(400).json({ message: "Vui lòng nhập đầy đủ thông tin!" });
+        }
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ message: "Mật khẩu mới không khớp!" });
+        }
+        if (newPassword === currentPassword) {
+            return res.status(400).json({ message: "Mật khẩu mới không thể giống mật khẩu cũ!" });
+        }
+
+        // ÉP REGEX BẢO MẬT
+        if (!/^(?=.*[A-Z])(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/.test(newPassword)) {
+            return res.status(400).json({ message: "Mật khẩu ít nhất 8 ký tự, có 1 chữ hoa và 1 ký tự đặc biệt!" });
+        }
+
+        // Lấy mật khẩu hiện tại từ DB
+        const [users] = await db.execute('SELECT password FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({ message: "Người dùng không tồn tại!" });
+        }
+
+        // Kiểm tra mật khẩu hiện tại có đúng không
+        const isMatch = await bcrypt.compare(currentPassword, users[0].password);
+        if (!isMatch) {
+            return res.status(401).json({ message: "Mật khẩu hiện tại không chính xác!" });
+        }
+
+        // Băm mật khẩu mới
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Cập nhật DB
+        await db.execute(
+            'UPDATE users SET password = ? WHERE id = ?',
+            [hashedPassword, userId]
+        );
+
+        res.status(200).json({ message: "Đổi mật khẩu thành công!" });
+
+    } catch (error) {
+        console.error('Lỗi đổi mật khẩu:', error);
+        res.status(500).json({ message: "Lỗi server khi đổi mật khẩu!" });
+    }
+};
+
+module.exports = { register, login, forceChangePassword, changePassword };

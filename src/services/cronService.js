@@ -11,7 +11,8 @@ cron.schedule("0 8 * * *", async () => {
         const [appointments] = await db.execute(`
             SELECT a.*, u.email, u.username 
             FROM appointments a
-            JOIN users u ON a.patient_id = u.id
+            JOIN patients pt ON a.patient_id = pt.id
+            JOIN users u ON pt.user_id = u.id
             WHERE a.appointment_date = CURDATE() + INTERVAL 1 DAY
             AND a.status IN ('pending', 'confirmed')
         `);
